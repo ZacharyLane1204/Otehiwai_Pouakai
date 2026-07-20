@@ -1,0 +1,47 @@
+# Conda environment for a fresh install of otehiwai_pouakai.
+#
+# Conda (via conda-forge) is the recommended route rather than a plain
+# venv + pip, because several dependencies (astroscrappy, sep,
+# scikit-image, pysynphot) have compiled C/Cython extensions --
+# conda-forge ships prebuilt binaries for all of them, avoiding the need
+# for a working system C compiler / build toolchain, which a plain `pip
+# install` would otherwise require.
+#
+# Usage
+# -----
+#   conda env create -f environment.yml
+#   conda activate Pouakai
+#   pip install -e .                                   # the package itself
+#   pip install "otehiwai-pouakai[calibrimbore]"        # or -e ".[calibrimbore]" from a checkout
+#
+# Swap `python=3.11` for `python=3.9` below if you specifically need to
+# match an existing 3.9.7 deployment; both are supported.
+name: Pouakai
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - numpy
+  - pandas
+  - scipy
+  - matplotlib
+  - astropy
+  # NOT astroquery here -- installed from GitHub source via pip below
+  # instead of the conda-forge/PyPI release, per site preference.
+  - astroscrappy
+  - photutils
+  - scikit-image
+  - scikit-learn
+  - joblib
+  - tqdm
+  - sep
+  - pysynphot
+  # astrometry.net's `solve-field`, used by wcs_compute.py -- also
+  # available on conda-forge, saves a separate from-source build.
+  - astrometry
+  - pip:
+      - -e .
+      # Uncomment to also pull calibrimbore automatically at env-creation
+      # time (otherwise install it afterwards -- see README):
+      # - git+https://github.com/CheerfulUser/calibrimbore.git

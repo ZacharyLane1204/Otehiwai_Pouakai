@@ -1,0 +1,79 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "otehiwai-pouakai"
+version = "2026.1.0"
+description = "End-to-end FLI/B&C astronomical image reduction, astrometric, and photometric calibration pipeline"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [
+    { name = "Zachary Lane" },
+]
+
+# Everything actually `import`ed by the pipeline modules (background_subtraction,
+# calibration_saurus, core_reduction, cross_process_semaphore, dark_masters,
+# failure_ledger, flat_masters, frame_quality, gaia_query, matau,
+# organise_files, pipeline, provenance, psf_photometry, running_stats,
+# spatial_epsf, wcs_compute, worker_logging) -- pared down from the raw
+# `pip list` dump, which mostly reflected an Anaconda base install (Spyder,
+# Jupyter, conda tooling, etc.) unrelated to this package.
+#
+# Versions are lower-bounds, not pins, so this resolves cleanly on both
+# Python 3.9 and 3.11: pinning to the exact versions from a Python-3.9
+# Anaconda environment (e.g. numpy 1.26.4) is unnecessarily restrictive
+# and in some cases won't even be the version conda-forge picks for 3.11.
+dependencies = [
+    "numpy>=1.23",
+    "pandas>=1.3",
+    "scipy>=1.9",
+    "matplotlib>=3.6",
+    "astropy>=5.2",
+    # Installed from the astroquery GitHub main branch rather than the
+    # last PyPI release, per site preference -- pin to a specific commit
+    # instead of `main` if you want this build reproducible:
+    #   "astroquery @ git+https://github.com/astropy/astroquery.git@<commit>"
+    "astroquery @ git+https://github.com/astropy/astroquery.git",
+    "astroscrappy>=1.1",
+    "photutils>=1.9",
+    "scikit-image>=0.19",
+    "scikit-learn>=1.0",
+    "joblib>=1.1",
+    "tqdm>=4.60",
+    "sep>=1.2",
+    # calibrimbore (see [project.optional-dependencies].calibrimbore below)
+    # needs pysynphot for its synthetic photometry; declared here directly
+    # too since calibration_saurus.py's `sauron` usage requires it whether
+    # or not calibrimbore was installed via the extra.
+    "pysynphot>=2.0",
+]
+
+[project.optional-dependencies]
+# calibrimbore is not on PyPI -- it's a git-only dependency (see
+# https://github.com/CheerfulUser/calibrimbore). pip can still install it
+# via a direct reference; kept as an extra (rather than a hard dependency)
+# because a plain `pip install otehiwai-pouakai` should not silently reach
+# out to GitHub, clone a repo, and run an unpinned third-party setup.py --
+# that's an explicit opt-in step. Install with:
+#     pip install "otehiwai-pouakai[calibrimbore]"
+# or pin to a specific commit for reproducibility:
+#     pip install otehiwai-pouakai git+https://github.com/CheerfulUser/calibrimbore.git@<commit>
+calibrimbore = [
+    "calibrimbore @ git+https://github.com/CheerfulUser/calibrimbore.git",
+]
+# Tools only needed to run the test/diagnostic scripts under scripts/,
+# not the installed library itself.
+dev = [
+    "pytest>=7.0",
+]
+
+[project.scripts]
+otehiwai-pouakai = "otehiwai_pouakai.pipeline:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+otehiwai_pouakai = []
