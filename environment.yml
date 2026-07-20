@@ -22,6 +22,7 @@ channels:
 dependencies:
   - python=3.11
   - pip
+  - setuptools
   - numpy
   - pandas
   - scipy

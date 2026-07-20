@@ -77,6 +77,7 @@ _SITE_DEFAULT_CAL_FILES_DIR = '/home/phys/astronomy/Pouakai_cal_Files/'
 _SITE_DEFAULT_MASTER_DARK_DIR = '/home/phys/astronomy/Pouakai_Masters/Master_Darks/'
 _SITE_DEFAULT_MASTER_FLAT_DIR = '/home/phys/astronomy/Pouakai_Masters/Master_Flats/'
 _SITE_DEFAULT_PYSYN_CDBS = '/home/phys/astronomy/Pysynphot_Files/'
+_SITE_DEFAULT_ASTROMETRY_BIN = '/usr/local/astrometry/bin'
 
 # Trailing slash kept on every returned path for drop-in compatibility
 # with the original modules, which all did f'{LOCATION}filename' string
@@ -150,3 +151,47 @@ def pysyn_cdbs_dir():
 # calibration_saurus.py, where `config` is imported first for exactly
 # this reason.
 os.environ.setdefault('PYSYN_CDBS', _SITE_DEFAULT_PYSYN_CDBS)
+
+
+def _ensure_astrometry_on_path():
+    """
+    Make sure astrometry.net's `solve-field` (used by wcs_compute.py,
+    invoked as a subprocess -- NOT a Python import) is actually findable
+    on PATH.
+
+    A conda/venv activation doesn't put a manually-installed
+    astrometry.net (e.g. built to /usr/local/astrometry/) on PATH by
+    itself -- previously this required a one-off `export
+    PATH=$PATH:/usr/local/astrometry/bin` line in your shell profile,
+    which every account running the pipeline had to remember to add.
+    This does the same thing at the Python-process level instead: if
+    `solve-field` isn't already resolvable on the current PATH, append
+    the astrometry.net bin directory (POUAKAI_ASTROMETRY_BIN env var, or
+    this site's default of /usr/local/astrometry/bin) to os.environ so
+    every `subprocess.run(['solve-field', ...])` call downstream finds
+    it -- without needing a shell profile edit at all. Still add the
+    shell export too if you shell out to `solve-field` directly, outside
+    this package (e.g. testing it by hand at a terminal) -- this only
+    patches the environment as seen by THIS Python process and anything
+    it spawns as a subprocess.
+
+    Idempotent and a no-op if `solve-field` is already on PATH (e.g.
+    installed via the conda-forge `astrometry` package in
+    environment.yml, which already puts it on PATH within the env).
+    """
+    import shutil
+
+    if shutil.which('solve-field') is not None:
+        return  # already resolvable; nothing to do
+
+    astrometry_bin = os.environ.get('POUAKAI_ASTROMETRY_BIN', _SITE_DEFAULT_ASTROMETRY_BIN)
+    if not astrometry_bin:
+        return
+
+    current_path = os.environ.get('PATH', '')
+    path_entries = current_path.split(os.pathsep) if current_path else []
+    if astrometry_bin not in path_entries:
+        os.environ['PATH'] = current_path + os.pathsep + astrometry_bin if current_path else astrometry_bin
+
+
+_ensure_astrometry_on_path()

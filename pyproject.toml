@@ -48,6 +48,14 @@ dependencies = [
     # too since calibration_saurus.py's `sauron` usage requires it whether
     # or not calibrimbore was installed via the extra.
     "pysynphot>=2.0",
+    # pysynphot imports pkg_resources (from setuptools) at its own
+    # import time. Newer Python/conda builds no longer bundle setuptools
+    # by default (unlike older Anaconda base environments, where it was
+    # always present incidentally), so this needs to be listed
+    # explicitly or pysynphot -- and anything that imports it, e.g.
+    # calibrimbore -- fails with "ModuleNotFoundError: No module named
+    # 'pkg_resources'" the moment it's imported.
+    "setuptools",
 ]
 
 [project.optional-dependencies]

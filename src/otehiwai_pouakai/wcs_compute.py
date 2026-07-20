@@ -23,6 +23,10 @@ from pathlib import Path
 
 from astropy.io import fits
 
+from . import config  # noqa: F401 -- import side effect: ensures
+# solve-field's directory is on PATH even if this module is imported
+# before anything else in the package happens to import config first
+# (see config._ensure_astrometry_on_path's docstring).
 from .failure_ledger import record_failure, clear_failure, is_known_failure
 
 logger = logging.getLogger(__name__)
