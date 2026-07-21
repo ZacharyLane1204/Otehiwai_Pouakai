@@ -7,7 +7,7 @@ name = "otehiwai-pouakai"
 version = "2026.1.0"
 description = "End-to-end FLI/B&C astronomical image reduction, astrometric, and photometric calibration pipeline"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [
     { name = "Zachary Lane" },
@@ -35,6 +35,11 @@ dependencies = [
     # last PyPI release, per site preference -- pin to a specific commit
     # instead of `main` if you want this build reproducible:
     #   "astroquery @ git+https://github.com/astropy/astroquery.git@<commit>"
+    # NOTE: astroquery's main branch has dropped Python <3.10 support
+    # (confirmed empirically 2026-07), which is why requires-python
+    # above is ">=3.10" rather than ">=3.9" -- if you need Python 3.9
+    # specifically, swap this line for a released version instead, e.g.
+    # "astroquery>=0.4.6,<0.5", and drop requires-python back to ">=3.9".
     "astroquery @ git+https://github.com/astropy/astroquery.git",
     "astroscrappy>=1.1",
     "photutils>=1.9",
@@ -55,7 +60,14 @@ dependencies = [
     # explicitly or pysynphot -- and anything that imports it, e.g.
     # calibrimbore -- fails with "ModuleNotFoundError: No module named
     # 'pkg_resources'" the moment it's imported.
-    "setuptools",
+    #
+    # Pinned <81: confirmed empirically (2026-07) that setuptools 83.0.0
+    # breaks this same pysynphot import (pkg_resources supped further
+    # than pysynphot expects), while 80.10.2 works. Revisit this pin if
+    # a future pysynphot release stops depending on pkg_resources, or if
+    # setuptools restores/stabilises whatever changed between those two
+    # versions.
+    "setuptools<81",
 ]
 
 [project.optional-dependencies]

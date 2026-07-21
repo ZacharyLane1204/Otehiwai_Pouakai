@@ -22,7 +22,9 @@ channels:
 dependencies:
   - python=3.11
   - pip
-  - setuptools
+  # <81: newer setuptools breaks pysynphot's pkg_resources import,
+  # confirmed empirically -- see pyproject.toml's comment on this pin.
+  - setuptools<81
   - numpy
   - pandas
   - scipy

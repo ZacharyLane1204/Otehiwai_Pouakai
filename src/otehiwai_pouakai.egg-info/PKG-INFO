@@ -4,7 +4,7 @@ Version: 2026.1.0
 Summary: End-to-end FLI/B&C astronomical image reduction, astrometric, and photometric calibration pipeline
 Author: Zachary Lane
 License: MIT
-Requires-Python: >=3.9
+Requires-Python: >=3.10
 Description-Content-Type: text/markdown
 License-File: LICENSE
 Requires-Dist: numpy>=1.23
@@ -21,6 +21,7 @@ Requires-Dist: joblib>=1.1
 Requires-Dist: tqdm>=4.60
 Requires-Dist: sep>=1.2
 Requires-Dist: pysynphot>=2.0
+Requires-Dist: setuptools<81
 Provides-Extra: calibrimbore
 Requires-Dist: calibrimbore @ git+https://github.com/CheerfulUser/calibrimbore.git ; extra == "calibrimbore"
 Provides-Extra: dev
@@ -85,9 +86,15 @@ conda activate Pouakai
 pip install -e .
 ```
 
-Swap `python=3.11` for `python=3.9` in `environment.yml` first if you
-need to match an existing 3.9.7 deployment exactly -- both are
-supported.
+**Use Python 3.11 (the `environment.yml` default), not 3.9**, unless you
+have a specific reason to match an old 3.9.7 deployment exactly:
+`astroquery`'s GitHub `main` branch (installed by default -- see below)
+has dropped support for Python <3.10, so `pip install -e .` will fail
+with `Package 'astroquery' requires a different Python: 3.9.7 not in
+'>=3.10'` on a 3.9 env. If you genuinely need 3.9, pin `astroquery` to a
+released version instead of `main` in `pyproject.toml` (swap the
+`astroquery @ git+...` line for e.g. `"astroquery>=0.4.6,<0.5"`) rather
+than changing the Python version.
 
 ### Option B -- plain venv + pip
 
@@ -111,12 +118,15 @@ You'll additionally need, on the system itself (not pip-installable):
 
 [`calibrimbore`](https://github.com/CheerfulUser/calibrimbore) isn't on
 PyPI, so it's kept as an optional extra rather than a hard dependency
-(a plain `pip install otehiwai-pouakai` shouldn't silently reach out to
-GitHub and build a third-party package). Install it explicitly:
+(a plain `pip install -e .` shouldn't silently reach out to GitHub and
+build a third-party package). Install it explicitly, **from inside the
+repo directory, referencing the local path (`.`) -- not the package
+name** (this package is not published to PyPI, so `pip install
+"otehiwai-pouakai[...]"` by name alone will always fail with "No
+matching distribution found"):
 
 ```bash
-pip install "otehiwai-pouakai[calibrimbore]"
-# or, from a checkout:
+cd Otehiwai_Pouakai        # repo root -- the `.` below means "this checkout"
 pip install -e ".[calibrimbore]"
 ```
 
@@ -249,3 +259,48 @@ the PSF photometry machinery standalone, outside the full pipeline.
 ```bash
 pip install -e ".[dev]"
 ```
+
+## Known issues
+
+- **`setuptools` must stay below 81.** `pysynphot` imports `pkg_resources`
+  at its own import time; `setuptools>=81` breaks that import with
+  `ModuleNotFoundError: No module named 'pkg_resources'`, confirmed
+  empirically (2026-07) -- `setuptools==83.0.0` fails, `80.10.2` works.
+  This is already pinned (`setuptools<81`) in both `pyproject.toml` and
+  `environment.yml`, so a normal install won't hit it -- only relevant
+  if something else in your environment forces a newer `setuptools`. If
+  you hit the error anyway: `pip install "setuptools<81"`.
+
+- **`astroquery` (installed from source) needs Python >=3.10.** If
+  `pip install -e .` fails with `Package 'astroquery' requires a
+  different Python: 3.9.7 not in '>=3.10'`, you're on a Python 3.9 env
+  -- use the `environment.yml` default of Python 3.11 instead (see
+  Install, Option A), or pin `astroquery` to a released PyPI version
+  rather than `main` if you specifically need 3.9 (see the comment next
+  to that dependency line in `pyproject.toml`).
+
+- **`pip install "otehiwai-pouakai[...]"` (by package name) will always
+  fail with "No matching distribution found".** This package is not
+  published on PyPI -- it only exists as your local checkout. Install
+  extras with `pip install -e ".[calibrimbore]"` run from inside the
+  repo directory instead (the leading `.` means "this checkout", not "a
+  package named `.`").
+
+- **`pip` reports "Defaulting to user installation because normal
+  site-packages is not writeable" while a conda env is active.** This
+  means `pip`/`python` on your `PATH` are not actually the active
+  conda env's copies (they resolved to a different, non-writable
+  Python install instead -- e.g. a shared system Anaconda base
+  install). Everything will still appear to "work" but silently install
+  into `~/.local` rather than the env, and later imports/extras
+  resolution will behave inconsistently. Check with:
+  ```bash
+  conda activate Pouakai
+  which python; which pip
+  # both paths should contain .../envs/Pouakai/... -- if they instead
+  # point at a shared/system anaconda install, conda isn't being
+  # activated correctly in this shell (common on cluster login nodes
+  # with an old shell or a PATH set before `conda init` runs). Try a
+  # fresh login shell, or use the env's interpreter explicitly:
+  ~/.conda/envs/Pouakai/bin/pip install -e .
+  ```
