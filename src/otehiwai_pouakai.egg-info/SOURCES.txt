@@ -12,6 +12,7 @@ src/otehiwai_pouakai/failure_ledger.py
 src/otehiwai_pouakai/flat_masters.py
 src/otehiwai_pouakai/frame_quality.py
 src/otehiwai_pouakai/gaia_query.py
+src/otehiwai_pouakai/manifest.py
 src/otehiwai_pouakai/matau.py
 src/otehiwai_pouakai/organise_files.py
 src/otehiwai_pouakai/pipeline.py

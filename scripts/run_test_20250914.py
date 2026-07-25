@@ -32,7 +32,7 @@ What this does
 
 Usage
 -----
-    python3 run_test_20250914.py
+    python run_test_20250914.py
 
 Adjust SAVE_LOCATION below to wherever you want the test output written.
 """
@@ -78,7 +78,7 @@ always in the log file.
 
 Usage
 -----
-    python3 run_test_20250914.py
+    python run_test_20250914.py
 
 Adjust SAVE_LOCATION below to wherever you want the test output written.
 """

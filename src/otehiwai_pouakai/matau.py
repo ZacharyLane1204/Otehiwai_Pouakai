@@ -98,6 +98,86 @@ def _file_creation(save_location):
         if not os.path.exists(save_location + path):
             os.makedirs(save_location + path)
 
+def master_name_from_path(path, strip_suffixes=('_reduced',)):
+    """
+    Recover the `master_name` grouping key (see `update_df`) from an
+    output filename produced at any pipeline stage.
+
+    Output files carry the master_name as their stem throughout the
+    pipeline, plus a stage-specific marker that `rename_wcs`/
+    `calibrating_internal` only ever partially strip: `red/` files are
+    `<master_name>_reduced.fits.gz`; `rename_wcs` strips `_reduced` but
+    leaves the `_wcs` marker it introduces, so `wcs/` files are
+    `<master_name>_wcs.fits.gz`; `calibrating_internal` in turn replaces
+    `_wcs` with `_cal`, so `cal/` files are `<master_name>_cal.fits.gz`.
+    Pass the right `strip_suffixes` for whichever directory `path` came
+    from -- this lets any stage recover which requested frame a given
+    output file on disk corresponds to, regardless of which
+    stage-specific suffix/extension it currently has.
+
+    Parameters
+    ----------
+    path : str or Path
+        Path to a `red/`, `wcs/`, or `cal/` output file.
+    strip_suffixes : tuple of str
+        Suffixes to strip from the stem after removing known
+        extensions, if present. Default handles `red/`'s `_reduced`
+        marker; use `('_wcs',)` for `wcs/` files, `('_cal',)` for
+        `cal/` files, or `()` if the stage's filenames need no
+        stripping.
+
+    Returns
+    -------
+    str
+        The recovered master_name.
+    """
+    stem = Path(path).name
+    for ext in ('.fits.gz', '.fits'):
+        if stem.endswith(ext):
+            stem = stem[:-len(ext)]
+            break
+    for suffix in strip_suffixes:
+        if stem.endswith(suffix):
+            stem = stem[:-len(suffix)]
+            break
+    return stem
+
+
+def filter_by_master_names(paths, master_names, strip_suffixes=('_reduced',)):
+    """
+    Restrict `paths` (output files found on disk, e.g. via `glob`) to
+    only those whose recovered master_name (see
+    `master_name_from_path`) is in `master_names`.
+
+    This is what scopes a stage to the frames actually requested for
+    the current run (via `--files`/`--glob`), instead of a stage
+    silently picking up every other file that happens to already sit
+    in the same `save_location` subdirectory -- which is otherwise easy
+    to hit when re-running `--mode wcs`/`cal` on a single frame inside
+    a `save_location` shared with other, previously-processed frames.
+
+    Parameters
+    ----------
+    paths : list of str
+        Candidate file paths (typically from `glob`).
+    master_names : set of str or None
+        master_names for the current run's requested frames. If None,
+        `paths` is returned unchanged (no scoping) -- used to preserve
+        old behaviour where this isn't wired up, or when a caller
+        deliberately wants every file in the directory.
+    strip_suffixes : tuple of str
+        Passed through to `master_name_from_path`.
+
+    Returns
+    -------
+    list of str
+        The subset of `paths` matching `master_names`, in original order.
+    """
+    if master_names is None:
+        return paths
+    return [p for p in paths if master_name_from_path(p, strip_suffixes) in master_names]
+
+
 def get_file_paths(file_path):
     """
     Glob `file_path` and return the absolute paths of matching files,

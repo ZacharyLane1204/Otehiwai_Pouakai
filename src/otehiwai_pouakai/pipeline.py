@@ -51,6 +51,31 @@ from .wcs_compute import wcs_astrometrynet_local
 from .core_reduction import reduction_script, calibrating_internal
 from .matau import get_file_paths, _deleting_wcs, rename_wcs, _file_creation, update_df
 from .worker_logging import get_current_logging_config
+from . import manifest as _manifest
+
+
+def _resolve_stage_inputs(default_glob, input_files=None, input_dir=None, input_glob=None):
+    """
+    Resolve the candidate file list for a stage runner (_run_wcs /
+    _run_calibration), independent of the pipeline's own save_location
+    folder structure.
+
+    Priority: explicit `input_files` list > `input_glob` pattern >
+    `input_dir` (globbed for '*.fits.gz') > `default_glob` (the
+    pipeline's own conventional save_location/<stage>/*.fits.gz
+    folder). This lets a stage be pointed at ANY folder of
+    already-prepared files (e.g. wcs-solved frames from somewhere
+    else entirely) without needing to be copied into the pipeline's
+    own directory layout, while still defaulting to the normal
+    behaviour when nothing extra is passed.
+    """
+    if input_files is not None:
+        return [str(f) for f in input_files]
+    if input_glob is not None:
+        return sorted(glob(input_glob))
+    if input_dir is not None:
+        return sorted(glob(str(Path(input_dir) / '*.fits.gz')))
+    return sorted(glob(default_glob))
 
 import warnings
 
@@ -151,7 +176,35 @@ class Pouakai:
                  use_grouping=True,
                  psf_error_inflation_max_scale=8.0,
                  epsf_sampling_candidates=(3, 2),
-                 assess_spatial_variation=True, subtract_background=True):
+                 assess_spatial_variation=True, subtract_background=True,
+                 wcs_input_files=None, wcs_input_dir=None, wcs_input_glob=None,
+                 cal_input_files=None, cal_input_dir=None, cal_input_glob=None):
+        """
+        wcs_input_files, wcs_input_dir, wcs_input_glob :
+            Override the WCS stage's candidate frame list. By default
+            (all None) it globs `save_location/red/*.fits.gz`, i.e. the
+            output of THIS pipeline's own reduction stage. Pass
+            `wcs_input_dir='/some/other/folder'` (or `wcs_input_files=
+            [...]` / `wcs_input_glob='/path/*.fits.gz'`) to instead
+            WCS-solve an arbitrary folder/subset of reduced frames that
+            didn't come from this pipeline's reduction stage or don't
+            follow its naming convention -- solved output still lands
+            under `save_location/wcs/` as usual. Only relevant for
+            mode in ('modulo', 'wcs').
+        cal_input_files, cal_input_dir, cal_input_glob :
+            Same idea for the calibration stage. By default globs
+            `save_location/wcs/*.fits.gz`. Pass e.g.
+            `cal_input_dir='/home/users/zgl12/Pouakai_Test_20250914/wcs'`
+            to calibrate a specific folder of already WCS-solved frames
+            directly, without them needing to sit under THIS run's
+            `save_location/wcs/` or match any filename pattern --
+            calibrating_internal() itself already only requires a
+            readable FITS path, it does not require the '_wcs' naming
+            convention (see its docstring). Only relevant for mode in
+            ('modulo', 'cal'). Calibration outputs (cal/, phot_table/,
+            zp/) always land under THIS run's `save_location`
+            regardless of where the inputs came from.
+        """
 
         self.logger = logging.getLogger('otehiwai_pouakai.Pouakai')
 
@@ -196,14 +249,17 @@ class Pouakai:
                                  bkg_box_size, bkg_filter_size, subtract_background=subtract_background)
 
         if mode in ('modulo', 'wcs'):
-            self._run_wcs(save_location, wcs_order, num_cores, wcs_cpulimit, wcs_subprocess_timeout)
+            self._run_wcs(save_location, wcs_order, num_cores, wcs_cpulimit, wcs_subprocess_timeout,
+                          input_files=wcs_input_files, input_dir=wcs_input_dir, input_glob=wcs_input_glob)
 
         if mode in ('modulo', 'cal'):
             self._run_calibration(save_location, num_cores, match_tol_px, isolation_radius_px,
                                    max_contamination_frac, max_calibration_stars,
                                    group_min_separation_px, group_min_separation_fwhm_factor,
                                    max_group_size, use_grouping, psf_error_inflation_max_scale,
-                                   epsf_sampling_candidates, assess_spatial_variation)
+                                   epsf_sampling_candidates, assess_spatial_variation,
+                                   input_files=cal_input_files, input_dir=cal_input_dir,
+                                   input_glob=cal_input_glob)
 
     # ------------------------------------------------------------------
     # Stage runners
@@ -237,8 +293,12 @@ class Pouakai:
         dt = time.time() - t0
         self.logger.info(f'--- Stage end: Reduction ({dt:.1f}s) ---')
 
-    def _run_wcs(self, save_location, wcs_order, num_cores, cpulimit=300, subprocess_timeout=330):
-        red_files = glob(save_location + 'red/*.fits.gz')
+    def _run_wcs(self, save_location, wcs_order, num_cores, cpulimit=300, subprocess_timeout=330,
+                 input_files=None, input_dir=None, input_glob=None):
+        red_files = _resolve_stage_inputs(
+            save_location + 'red/*.fits.gz',
+            input_files=input_files, input_dir=input_dir, input_glob=input_glob,
+        )
         self.logger.info(f'--- Stage start: WCS solving ({len(red_files)} candidate frames) ---')
         t0 = time.time()
 
@@ -254,8 +314,13 @@ class Pouakai:
         self.logger.info(f'WCS solved: {n_success}/{len(red_files)}')
 
         for r, fname in zip(results, red_files):
-            if not (isinstance(r, dict) and r.get('success')):
-                self.logger.warning(f'WCS failed for {fname}: {r.get("reason") if isinstance(r, dict) else r}')
+            ok = isinstance(r, dict) and r.get('success')
+            reason = (r.get('reason') if isinstance(r, dict) else r) or ''
+            new_file = r.get('new_file') if isinstance(r, dict) else None
+            _manifest.record_stage(save_location, 'wcs', 'success' if ok else 'failed',
+                                    input_path=fname, output_path=new_file, reason=reason)
+            if not ok:
+                self.logger.warning(f'WCS failed for {fname}: {reason}')
 
         _deleting_wcs(save_location)
 
@@ -273,8 +338,12 @@ class Pouakai:
                           max_group_size=25, use_grouping=True,
                           psf_error_inflation_max_scale=8.0,
                           epsf_sampling_candidates=(3, 2),
-                          assess_spatial_variation=True):
-        wcs_files = glob(save_location + 'wcs/*.fits.gz')
+                          assess_spatial_variation=True,
+                          input_files=None, input_dir=None, input_glob=None):
+        wcs_files = _resolve_stage_inputs(
+            save_location + 'wcs/*.fits.gz',
+            input_files=input_files, input_dir=input_dir, input_glob=input_glob,
+        )
         self.logger.info(f'--- Stage start: Calibration ({len(wcs_files)} candidate frames) ---')
         t0 = time.time()
 
@@ -341,6 +410,23 @@ def build_arg_parser():
     p.add_argument('--mode', type=str, default='modulo',
                     choices=['modulo', 'red', 'wcs', 'cal'])
     p.add_argument('--no-organise', action='store_true', help='Skip the file-organising stage.')
+    p.add_argument('--wcs-input-dir', type=str, default=None,
+                    help='Run the WCS stage (mode=wcs/modulo) against every *.fits.gz in this '
+                         'folder instead of save-location/red/. Solved output still goes to '
+                         'save-location/wcs/ as usual.')
+    p.add_argument('--wcs-input-glob', type=str, default=None,
+                    help='Same as --wcs-input-dir but with an explicit glob pattern, e.g. to '
+                         'run WCS-solving on a small subset by name.')
+    p.add_argument('--cal-input-dir', type=str, default=None,
+                    help='Run the calibration stage (mode=cal/modulo) against every *.fits.gz '
+                         'in this folder instead of save-location/wcs/ -- e.g. to calibrate '
+                         'already WCS-solved frames from another run/location without needing '
+                         'them inside THIS save-location\'s wcs/ folder or any particular '
+                         'filename convention. Calibration outputs (cal/, phot_table/, zp/) '
+                         'still land under save-location as usual.')
+    p.add_argument('--cal-input-glob', type=str, default=None,
+                    help='Same as --cal-input-dir but with an explicit glob pattern, e.g. to '
+                         'calibrate a specific subset of files by name.')
     p.add_argument('--no-masters', action='store_true', help='Skip building master darks/flats.')
     p.add_argument('--dark-exp-tol', type=float, default=3)
     p.add_argument('--dark-date-tol', type=float, default=12)
@@ -449,8 +535,17 @@ def main(argv=None):
     parser = build_arg_parser()
     args = parser.parse_args(argv)
 
-    if (args.glob is None) == (args.files is None):
-        parser.error('Exactly one of --glob or --files must be provided.')
+    # --glob/--files feed the RAW-frame -> reduction stage. If this run
+    # only touches the wcs or cal stage (mode='wcs'/'cal') and the
+    # relevant --*-input-dir/--*-input-glob override is given instead,
+    # there's nothing for --glob/--files to do, so don't require them.
+    stage_input_given = (
+        (args.mode == 'wcs' and (args.wcs_input_dir or args.wcs_input_glob)) or
+        (args.mode == 'cal' and (args.cal_input_dir or args.cal_input_glob))
+    )
+    if (args.glob is None) == (args.files is None) and not stage_input_given:
+        parser.error('Exactly one of --glob or --files must be provided (unless running a single '
+                      'stage with --wcs-input-dir/--wcs-input-glob or --cal-input-dir/--cal-input-glob).')
 
     logger, log_file = setup_logging(
         args.save_location, level=getattr(logging, args.log_level),
@@ -461,11 +556,13 @@ def main(argv=None):
     if args.glob is not None:
         files = get_file_paths(args.glob)
         logger.info(f'Resolved {len(files)} files from glob {args.glob!r}')
-    else:
+    elif args.files is not None:
         files = list(args.files)
         logger.info(f'Using {len(files)} explicitly provided files')
+    else:
+        files = []
 
-    if len(files) == 0:
+    if len(files) == 0 and not stage_input_given:
         logger.warning('No input files found; exiting.')
         return 0
 
@@ -488,6 +585,8 @@ def main(argv=None):
             max_group_size=args.max_group_size,
             use_grouping=args.use_grouping,
             psf_error_inflation_max_scale=args.psf_error_inflation_max_scale,
+            wcs_input_dir=args.wcs_input_dir, wcs_input_glob=args.wcs_input_glob,
+            cal_input_dir=args.cal_input_dir, cal_input_glob=args.cal_input_glob,
         )
     except Exception:
         logger.exception('Pipeline run failed with an unhandled exception')

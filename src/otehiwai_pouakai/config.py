@@ -156,42 +156,55 @@ os.environ.setdefault('PYSYN_CDBS', _SITE_DEFAULT_PYSYN_CDBS)
 def _ensure_astrometry_on_path():
     """
     Make sure astrometry.net's `solve-field` (used by wcs_compute.py,
-    invoked as a subprocess -- NOT a Python import) is actually findable
-    on PATH.
+    invoked as a subprocess -- NOT a Python import) resolves to THIS
+    site's manually-installed, correctly-indexed astrometry.net build,
+    not some other `solve-field` that happens to be earlier on PATH.
 
-    A conda/venv activation doesn't put a manually-installed
-    astrometry.net (e.g. built to /usr/local/astrometry/) on PATH by
-    itself -- previously this required a one-off `export
-    PATH=$PATH:/usr/local/astrometry/bin` line in your shell profile,
-    which every account running the pipeline had to remember to add.
-    This does the same thing at the Python-process level instead: if
-    `solve-field` isn't already resolvable on the current PATH, append
-    the astrometry.net bin directory (POUAKAI_ASTROMETRY_BIN env var, or
-    this site's default of /usr/local/astrometry/bin) to os.environ so
-    every `subprocess.run(['solve-field', ...])` call downstream finds
-    it -- without needing a shell profile edit at all. Still add the
-    shell export too if you shell out to `solve-field` directly, outside
-    this package (e.g. testing it by hand at a terminal) -- this only
-    patches the environment as seen by THIS Python process and anything
-    it spawns as a subprocess.
+    Why this PREPENDS rather than only filling a gap
+    ---------------------------------------------------
+    A naive "only add this directory to PATH if solve-field isn't
+    already found anywhere" is NOT safe here: `environment.yml` also
+    installs conda-forge's `astrometry` package (for people without an
+    existing manual install), which puts its OWN `solve-field` on PATH
+    ahead of a manually-installed one at /usr/local/astrometry/bin.
+    That conda-forge build has no index files configured out of the
+    box, so it still runs -- but fails partway through with "You must
+    list at least one index in the config file", which surfaces in
+    this pipeline as a generic wcs-stage failure ("no solution (.new
+    file not produced)") rather than the underlying config problem.
+    This bit us in practice (2026-07): a previously-working manual
+    install silently stopped being used the moment `environment.yml`
+    started installing conda-forge's astrometry package alongside it.
 
-    Idempotent and a no-op if `solve-field` is already on PATH (e.g.
-    installed via the conda-forge `astrometry` package in
-    environment.yml, which already puts it on PATH within the env).
+    Prepending this site's known-good bin directory (rather than only
+    appending when nothing is found) means it always wins over any
+    other `solve-field`, including a conda-installed one -- while still
+    being a safe no-op on a machine where that directory doesn't exist.
+
+    Still add the shell export too (`export
+    PATH=$PATH:/usr/local/astrometry/bin`) if you ever call
+    `solve-field` by hand at a terminal, outside this package -- this
+    only patches the environment as seen by THIS Python process and
+    anything it spawns as a subprocess.
+
+    Override the directory via the POUAKAI_ASTROMETRY_BIN environment
+    variable rather than editing this function.
     """
-    import shutil
-
-    if shutil.which('solve-field') is not None:
-        return  # already resolvable; nothing to do
-
     astrometry_bin = os.environ.get('POUAKAI_ASTROMETRY_BIN', _SITE_DEFAULT_ASTROMETRY_BIN)
-    if not astrometry_bin:
+    if not astrometry_bin or not os.path.isdir(astrometry_bin):
+        # Nothing to prepend (e.g. this machine has no manual install at
+        # that path) -- leave PATH exactly as conda/the shell set it up,
+        # so a conda-forge-provided solve-field (if any, and if properly
+        # configured with index files) is still found normally.
         return
 
     current_path = os.environ.get('PATH', '')
     path_entries = current_path.split(os.pathsep) if current_path else []
-    if astrometry_bin not in path_entries:
-        os.environ['PATH'] = current_path + os.pathsep + astrometry_bin if current_path else astrometry_bin
+    if path_entries and path_entries[0] == astrometry_bin:
+        return  # already first; nothing to do
+
+    path_entries = [astrometry_bin] + [p for p in path_entries if p != astrometry_bin]
+    os.environ['PATH'] = os.pathsep.join(path_entries)
 
 
 _ensure_astrometry_on_path()

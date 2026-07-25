@@ -12,6 +12,7 @@ from .background_subtraction import determine_background, background_residual_fl
 from .failure_ledger import record_failure, clear_failure, is_known_failure
 from .provenance import build_provenance_dict
 from .worker_logging import configure_process_logging
+from . import manifest as _manifest
 
 import os
 import logging
@@ -103,12 +104,14 @@ def reduction_script(updated_sci_list, i, save_location,
         reason = 'no suitable master dark found'
         logger.warning(f'{i} {sci_file}: {reason}')
         record_failure(save_location, _STAGE_REDUCTION, sci_file, reason)
+        _manifest.record_stage(save_location, _STAGE_REDUCTION, 'failed', input_path=sci_file, reason=reason)
         return None
 
     if flat_fname == 'none':
         reason = 'no suitable master flat found'
         logger.warning(f'{i} {sci_file}: {reason}')
         record_failure(save_location, _STAGE_REDUCTION, sci_file, reason)
+        _manifest.record_stage(save_location, _STAGE_REDUCTION, 'failed', input_path=sci_file, reason=reason)
         return None
 
     try:
@@ -189,10 +192,13 @@ def reduction_script(updated_sci_list, i, save_location,
         hdul.writeto(save_name, overwrite=True)
         os.system(f"gzip -f {save_name}")
         clear_failure(save_location, _STAGE_REDUCTION, sci_file)
+        _manifest.record_stage(save_location, _STAGE_REDUCTION, 'success',
+                                input_path=sci_file, output_path=str(save_name) + '.gz')
     except Exception as e:
         reason = f'failed to write output: {e}'
         logger.error(f'{i} {sci_file}: {reason}')
         record_failure(save_location, _STAGE_REDUCTION, sci_file, reason)
+        _manifest.record_stage(save_location, _STAGE_REDUCTION, 'failed', input_path=sci_file, reason=reason)
 
     return None
 
@@ -352,12 +358,14 @@ def calibrating_internal(filename, save_location, skip_known_failures=True,
                 reason = 'no zeropoint result (too few calibration stars after matching)'
             logger.warning(f'{filename}: calibration failed ({reason})')
             record_failure(save_location, _STAGE_CALIBRATION, filename, reason)
+            _manifest.record_stage(save_location, _STAGE_CALIBRATION, 'failed', input_path=filename, reason=reason)
             return None
 
         if cally.calibration_df is None or len(cally.calibration_df) == 0:
             reason = 'no usable calibration table'
             logger.warning(f'{filename}: calibration produced {reason}')
             record_failure(save_location, _STAGE_CALIBRATION, filename, reason)
+            _manifest.record_stage(save_location, _STAGE_CALIBRATION, 'failed', input_path=filename, reason=reason)
             return None
 
         with fits.open(filename) as hdul:
@@ -507,6 +515,8 @@ def calibrating_internal(filename, save_location, skip_known_failures=True,
         hdu.writeto(cal_new_path, overwrite=True)
         os.system(f"gzip -f {cal_new_path}")
         clear_failure(save_location, _STAGE_CALIBRATION, filename)
+        _manifest.record_stage(save_location, _STAGE_CALIBRATION, 'success',
+                                input_path=filename, output_path=str(cal_new_path) + '.gz')
         return None
 
     except NarrowbandFilterError as e:
@@ -520,6 +530,7 @@ def calibrating_internal(filename, save_location, skip_known_failures=True,
         reason = f'narrowband filter, not calibratable via calibrimbore: {e}'
         logger.info(f'{filename}: {reason}')
         record_failure(save_location, _STAGE_CALIBRATION, filename, reason)
+        _manifest.record_stage(save_location, _STAGE_CALIBRATION, 'skipped', input_path=filename, reason=reason)
         return None
 
     except PSFGroupingError as e:
@@ -540,6 +551,7 @@ def calibrating_internal(filename, save_location, skip_known_failures=True,
         reason = f'PSF group-fit failed (astropy.modeling recursion limit, group too large): {e}'
         logger.warning(f'{filename}: {reason}')
         record_failure(save_location, _STAGE_CALIBRATION, filename, reason)
+        _manifest.record_stage(save_location, _STAGE_CALIBRATION, 'failed', input_path=filename, reason=reason)
         return None
 
     except RecursionError as e:
@@ -554,6 +566,7 @@ def calibrating_internal(filename, save_location, skip_known_failures=True,
         reason = f'recursion error (origin not photometry()\'s group-fit path -- see log for full traceback): {e}'
         logger.warning(f'{filename}: {reason}', exc_info=True)
         record_failure(save_location, _STAGE_CALIBRATION, filename, reason)
+        _manifest.record_stage(save_location, _STAGE_CALIBRATION, 'failed', input_path=filename, reason=reason)
         return None
 
     except SepExtractionError as e:
@@ -569,6 +582,7 @@ def calibrating_internal(filename, save_location, skip_known_failures=True,
         reason = f'sep extraction failed: {e}'
         logger.warning(f'{filename}: {reason}')
         record_failure(save_location, _STAGE_CALIBRATION, filename, reason)
+        _manifest.record_stage(save_location, _STAGE_CALIBRATION, 'failed', input_path=filename, reason=reason)
         return None
 
     except RuntimeError as e:
@@ -590,10 +604,17 @@ def calibrating_internal(filename, save_location, skip_known_failures=True,
         # next run.
         reason = f'calibration step failed (transient, not recorded -- will retry next run): {e}'
         logger.warning(f'{filename}: {reason}')
+        # Deliberately NOT recorded in the failure ledger (see comment
+        # above), but still logged to the manifest -- unlike the
+        # ledger, the manifest is an append-only history rather than a
+        # skip-list, so recording a transient hiccup here doesn't cause
+        # any future run to skip the frame.
+        _manifest.record_stage(save_location, _STAGE_CALIBRATION, 'transient_failed', input_path=filename, reason=reason)
         return None
 
     except Exception as e:
         reason = f'calibration step failed: {e}'
         logger.error(f'{filename}: {reason}')
         record_failure(save_location, _STAGE_CALIBRATION, filename, reason)
+        _manifest.record_stage(save_location, _STAGE_CALIBRATION, 'failed', input_path=filename, reason=reason)
         return None
