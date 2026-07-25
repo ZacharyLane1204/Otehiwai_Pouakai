@@ -31,7 +31,9 @@ conda create -n Pouakai python=3.11.15 -c conda-forge -y --copy && conda activat
 export PYTHONNOUSERSITE=1
 python -m pip install --upgrade pip setuptools wheel
 conda update ca-certificates -y
-pip install -e . && pip install -e ".[calibrimbore]" && pip install --upgrade certifi
+pip install -e . 
+pip install -e ".[calibrimbore]" 
+pip install --upgrade certifi
 
 # 2. Confirm the install itself is sound before running anything real
 python -c "import otehiwai_pouakai; print(otehiwai_pouakai.__version__)"
@@ -51,13 +53,6 @@ python run_test_20250914.py
 targets one specific night's data as a smoke test) -- see
 [Running the full pipeline](#running-the-full-pipeline) for how to
 point the `Pouakai` class at your own file list once this succeeds.
-
-If step 3 reports WCS-stage failures, see
-[solve-field: numpy compatibility](#solve-field-fails-with-attributeerror-module-numpy-has-no-attribute-bool)
--- the `numpy<1.24` pin should already avoid this, but if something
-else in your environment has pulled in a newer numpy anyway,
-`./scripts/patch_astrometry_numpy_compat.sh` is the fallback (needs
-write access to the shared astrometry.net install).
 
 If step 3 reports other failures, its printed summary already breaks
 them down by stage and reason (pulled from `failure_ledger.py`) --
@@ -143,9 +138,7 @@ A few things worth knowing about that sequence:
   Python ignore your personal `~/.local` site-packages entirely for
   those installs -- keep it set, since it protects against `pip`
   silently landing packages outside the env on a shared/misconfigured
-  install (see [Known issues](#known-issues) if `pip list` after
-  activation still shows a large, unrelated package set, or if you
-  suspect a global `PYTHONPATH` is interfering).
+  install.
 - **`python -m pip install --upgrade pip setuptools wheel` before `pip
   install -e .`.** A freshly created env's bundled `pip` can be old
   enough to predate PEP 660 (editable installs from a
@@ -173,13 +166,8 @@ A few things worth knowing about that sequence:
   release.** This is required, not just preferred: calibrimbore's own
   README states it needs astroquery's master branch, and using an
   older release causes `sauron.estimate_mag` to fail during
-  calibration with cryptic errors (confirmed empirically, 2026-07:
-  `KeyError: 'g_psf'`, and a str/int comparison `TypeError`) -- both
-  symptoms of calibrimbore getting back a differently-shaped catalog
-  table than it expects from an older astroquery. Needs Python >=3.10,
-  which 3.11 already satisfies -- this is also why 3.11 (not 3.9) is
-  the default now. For a reproducible build, pin to a specific commit
-  instead of tracking `main`:
+  calibration with cryptic errors (confirmed empirically). For a reproducible
+  build, pin to a specific commit instead of tracking `main`:
   ```
   "astroquery @ git+https://github.com/astropy/astroquery.git@<commit_hash>"
   ```
@@ -209,7 +197,7 @@ Python 3.9 is not a safe substitute here either, since `calibrimbore`
 needs astroquery's `main` branch regardless of which install route you
 use (see the astroquery bullet above).
 
-### Alternative: plain venv + pip
+### Alternative: plain venv + pip (not recommended and ill-tested)
 
 ```bash
 python3.11 -m venv .venv
@@ -239,25 +227,6 @@ environment variable) to `os.environ['PATH']` for the current process
 and anything it spawns as a subprocess -- so this happens automatically,
 without any shell profile edit, and without being able to be silently
 shadowed by another `solve-field` earlier on `PATH`.
-
-That last point matters because of a regression we hit in practice: an
-earlier version of `environment.yml` also installed conda-forge's
-`astrometry` package, which puts its *own* `solve-field` on `PATH`. That
-build has no index files configured out of the box, so it still runs,
-but fails partway through with:
-```
-You must list at least one index in the config file (.../etc/astrometry.cfg)
-```
-which surfaces in this pipeline as a generic wcs-stage failure --
-`no solution (.new file not produced)` -- rather than the underlying
-config problem, since `wcs_astrometrynet_local` can't distinguish "no
-astrometric match found" from "solve-field itself was misconfigured" (both
-just mean no `.new` file was produced). `environment.yml` no longer
-installs conda-forge's `astrometry` package for this reason -- see the
-comment there if you're deploying somewhere without an existing manual
-astrometry.net install and need to reinstate it (you'll also need to
-fetch and register index files yourself; conda-forge's package doesn't
-include them).
 
 If you ever call `solve-field` by hand at a terminal, outside this
 package, you'd still want the shell export too:
@@ -290,23 +259,7 @@ to avoid the bug entirely, with no filesystem write access to
 
 **Alternative, if you want a modern numpy and have write access to
 `/usr/local/astrometry/`:** patch the astrometry.net install directly
-instead of pinning numpy down:
-
-```bash
-./scripts/patch_astrometry_numpy_compat.sh
-# or, for a different install location:
-./scripts/patch_astrometry_numpy_compat.sh /path/to/astrometry/lib/python/astrometry/util/
-```
-
-It patches only the deprecated bare aliases (`np.bool`, `np.int`,
-`np.float`, `np.object`, `np.long`, `np.str`, `np.complex` → their
-builtin equivalents), leaving the still-valid numpy scalar types
-(`np.bool_`, `np.int32`, `np.float64`, etc.) untouched, and keeps a
-timestamped `.bak` copy of every file it changes. This needs write
-permission on that shared install -- if you get `Permission denied`
-running it, either ask whoever manages it (it's a one-line change per
-file) or fall back to the numpy pin above, which needs no special
-permissions at all.
+instead of pinning numpy down.
 
 ## pysynphot CDBS reference data
 
@@ -722,7 +675,7 @@ one-off result:
 **Option A -- edit and run the example script directly.** Open
 `scripts/run_psf_photometry_example.py`, edit the `if __name__ ==
 '__main__':` block at the bottom (set `FITS_FILE` and whichever
-`runner.run(...)` calls you want), then:
+`runner.run(...)` calls you want, then:
 
 ```bash
 cd scripts
@@ -788,42 +741,6 @@ pip install -e ".[dev]"
 ```
 
 ## Known issues
-
-- **`pip install -e .` reports dependency conflicts about packages this
-  project doesn't depend on** (e.g. `lightkurve`, `psfmachine`, `sfft`,
-  `pysiaf`, `autograd`, `kbackground`, `reproject`) **and/or `pip list`
-  shows a huge, unrelated package set inside the `Pouakai` env, even
-  after recreating the env with `--copy` and setting
-  `PYTHONNOUSERSITE=1`.** This means `pip`/Python are seeing packages
-  from outside the env entirely. Two separate possible causes, check
-  both:
-
-  1. A global **`PYTHONPATH`** environment variable, set somewhere in
-     your shell profile (`.bashrc`, `.cshrc`, etc.) -- common on shared
-     university installs, to make the base Anaconda importable by
-     default for every login. This overrides env isolation regardless
-     of `PYTHONNOUSERSITE` or which install method you use. Check with:
-     ```bash
-     echo $PYTHONPATH
-     python -c "import sys; print('\n'.join(sys.path))"
-     ```
-     Look for anything pointing at a shared/system Python (e.g.
-     `/usr/local/phys/Linux/anaconda3.9/...`) while the `Pouakai` env is
-     active. If found, `unset PYTHONPATH` before activating the env (or
-     remove/guard the export in your shell profile) and reinstall.
-  2. `pip` falling back to `~/.local` because it thinks the env's own
-     site-packages isn't writable -- `PYTHONNOUSERSITE=1` (already in
-     the recommended [Install](#install-recommended) commands) should
-     prevent this from landing anywhere, but if `pip` then fails
-     outright with a genuine permission error instead, that confirms
-     the env's site-packages truly isn't writable by your account,
-     worth raising with whoever manages the shared conda install.
-
-  None of the packages named in the conflict warnings are
-  `otehiwai-pouakai` dependencies regardless -- check `pyproject.toml`
-  if in doubt. A fully personal conda install (e.g. Miniconda under
-  `~/miniconda3`, independent of the shared one) sidesteps both causes
-  entirely.
 
 - **`pip install -e .` fails with `Directory cannot be installed in
   editable mode ... editable mode currently requires a setuptools-based
@@ -902,18 +819,6 @@ pip install -e ".[dev]"
   `environment.yml`, so a normal install won't hit it -- only relevant
   if something else in your environment forces a newer `setuptools`. If
   you hit the error anyway: `pip install "setuptools<81"`.
-
-- **Calibration fails with `calibration step failed: 'g_psf'` and/or
-  `'<' not supported between instances of 'str' and 'int'`.** Means
-  `astroquery` is installed from PyPI rather than its GitHub `main`
-  branch. `calibrimbore`'s own README states it requires astroquery's
-  master branch for its PS1/catalog queries; an older release returns
-  a differently-shaped catalog table to `sauron.estimate_mag`, causing
-  these two specific errors (confirmed empirically, 2026-07). This is
-  already the default (`pyproject.toml` pulls astroquery from
-  `git+https://github.com/astropy/astroquery.git`) -- if you've
-  overridden that back to a PyPI release (e.g. to support Python 3.9),
-  restore the git-source line and use Python >=3.10.
 
 - **`pip install "otehiwai-pouakai[...]"` (by package name) will always
   fail with "No matching distribution found".** This package is not
