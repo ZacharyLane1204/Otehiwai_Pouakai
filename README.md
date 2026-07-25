@@ -1,9 +1,9 @@
 # Otehiwai Pouakai
 
 End-to-end FLI/B&C astronomical image reduction, astrometric (WCS), and
-photometric calibration pipeline: dark/flat master-building, background
+photometric calibration pipeline: dark/flat master-building, advanced structure background
 subtraction, ePSF-based photometry, Gaia/`calibrimbore`-based zeropoint
-calibration, and cron-friendly orchestration with persistent
+calibration (accounting for atmospheric corrections), and cron-friendly orchestration with persistent
 failure-tracking so re-runs don't re-attempt known-bad frames.
 
 This package was designed for and is deployed on the **University of
